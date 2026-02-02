@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bazar Receipt Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Mobile optimization: Prevent text selection and long-press menus */
+        * { -webkit-tap-highlight-color: transparent; user-select: none; }
+        .catalog-scroll { max-height: calc(100vh - 240px); overflow-y: auto; }
+        
+        /* 58mm Thermal Print Formatting */
+        @media print {
+            body * { visibility: hidden; }
+            #receipt, #receipt * { visibility: visible; color: black !important; }
+            #receipt { position: absolute; left: 0; top: 0; width: 58mm; padding: 2mm; font-family: 'Courier New', monospace; font-size: 12px; }
+            .no-print { display: none !important; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100" x-data="bazarApp()">
+    <header class="bg-green-600 text-white p-4 sticky top-0 z-50 shadow-md no-print flex justify-between items-center">
+        <h1 class="text-xl font-bold flex items-center gap-2"><i data-lucide="shopping-cart"></i> বাজার লিস্ট</h1>
+        <button @click="window.print()" class="bg-white text-green-600 px-4 py-2 rounded-full font-bold active:scale-95 transition">প্রিন্ট</button>
+    </header>
+
+    <main class="p-4 no-print">
+        <div class="bg-white rounded-2xl shadow-sm p-4 mb-6 border border-gray-200">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="font-bold text-gray-700">নির্বাচিত আইটেম</h2>
+                <button @click="clearList()" class="text-red-500 text-sm">সব মুছুন</button>
+            </div>
+            <div class="space-y-3">
+                <template x-for="item in activeList" :key="item.id">
+                    <div class="flex justify-between items-center bg-gray-50 p-3 rounded-xl border border-gray-100">
+                        <span class="font-medium" x-text="item.name"></span>
+                        <div class="flex items-center gap-4">
+                            <button @click="updateQty(item.id, -1)" class="w-8 h-8 flex items-center justify-center bg-white border rounded shadow-sm">-</button>
+                            <span class="font-bold text-green-700" x-text="item.qty"></span>
+                            <button @click="updateQty(item.id, 1)" class="w-8 h-8 flex items-center justify-center bg-white border rounded shadow-sm">+</button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <div class="catalog-scroll pr-2">
+            <template x-for="(items, category) in catalog" :key="category">
+                <div class="mb-6">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3" x-text="category"></h3>
+                    <div class="grid grid-cols-2 gap-2">
+                        <template x-for="item in items" :key="item.name">
+                            <button @click="addItem(item)" class="bg-white p-3 rounded-xl border border-gray-200 text-sm text-left hover:border-green-400 active:bg-green-50 transition" x-text="item.name"></button>
+                        </template>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </main>
+
+    <div id="receipt" class="hidden print:block">
+        <center>
+            <b style="font-size: 16px;">বানিজ্যিক বাজার লিস্ট</b><br>
+            <span x-text="new Date().toLocaleString()"></span>
+        </center>
+        <hr style="border-top: 1px dashed #000; margin: 8px 0;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <template x-for="item in activeList" :key="item.id">
+                <tr>
+                    <td style="padding: 2px 0;" x-text="item.name"></td>
+                    <td align="right" x-text="item.qty + ' ' + item.unit"></td>
+                </tr>
+            </template>
+        </table>
+        <hr style="border-top: 1px dashed #000; margin: 8px 0;">
+        <center>ধন্যবাদ!</center>
+    </div>
+
+    <script>
+        const db = new Dexie("BazarDB");
+        db.version(1).stores({ list: '++id, name, qty, unit' });
+
+        function bazarApp() {
+            return {
+                activeList: [],
+                catalog: {
+                    "নিত্যপণ্য": [{name:"চাল", unit:"কেজি"}, {name:"ডাল", unit:"কেজি"}, {name:"তেল", unit:"লিটার"}, {name:"চিনি", unit:"কেজি"}],
+                    "সবজি": [{name:"আলু", unit:"কেজি"}, {name:"পেঁয়াজ", unit:"কেজি"}, {name:"মরিচ", unit:"গ্রাম"}, {name:"লেবু", unit:"হালি"}],
+                    "প্রোটিন": [{name:"ডিম", unit:"ডজন"}, {name:"মুরগি", unit:"কেজি"}, {name:"মাছ", unit:"কেজি"}]
+                },
+                async init() { lucide.createIcons(); this.load(); },
+                async load() { this.activeList = await db.list.toArray(); },
+                async addItem(i) {
+                    const ex = await db.list.where('name').equals(i.name).first();
+                    ex ? await db.list.update(ex.id, {qty: ex.qty+1}) : await db.list.add({...i, qty:1});
+                    this.load();
+                },
+                async updateQty(id, c) {
+                    const i = await db.list.get(id);
+                    (i.qty + c <= 0) ? await db.list.delete(id) : await db.list.update(id, {qty: i.qty+c});
+                    this.load();
+                },
+                async clearList() { if(confirm('লিস্টটি কি মুছে ফেলতে চান?')) { await db.list.clear(); this.load(); } }
+            }
+        }
+    </script>
+</body>
+</html>
